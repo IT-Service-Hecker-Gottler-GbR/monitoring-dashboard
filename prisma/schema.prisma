@@ -1,0 +1,51 @@
+// Monitoring Dashboard - Prisma Schema
+// Models: User, Domain, CheckLog
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  hashedPassword String
+  name           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  domains        Domain[]
+}
+
+model Domain {
+  id            String     @id @default(cuid())
+  url           String
+  customerName  String
+  checkInterval Int        @default(5) // in minutes
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkLogs     CheckLog[]
+
+  @@index([isActive])
+}
+
+model CheckLog {
+  id         String   @id @default(cuid())
+  domainId   String
+  domain     Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  statusCode Int?
+  latency    Int? // in milliseconds
+  isUp       Boolean
+  sslValid   Boolean?
+  sslExpiry  DateTime?
+  error      String?
+  checkedAt  DateTime @default(now())
+
+  @@index([domainId, checkedAt])
+}
