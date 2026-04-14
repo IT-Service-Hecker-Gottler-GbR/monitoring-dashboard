@@ -14,16 +14,24 @@ async function getDomains() {
         orderBy: { checkedAt: "desc" },
         take: 5,
       },
+      serverGroup: true,
     },
     orderBy: { createdAt: "desc" },
   });
 }
 
+async function getGroups() {
+  return prisma.serverGroup.findMany({
+    orderBy: { name: "asc" },
+  });
+}
+
 async function getStats() {
-  const [totalDomains, activeDomains, totalChecks] = await Promise.all([
+  const [totalDomains, activeDomains, totalChecks, totalGroups] = await Promise.all([
     prisma.domain.count(),
     prisma.domain.count({ where: { isActive: true } }),
     prisma.checkLog.count(),
+    prisma.serverGroup.count(),
   ]);
 
   // Get latest check results for up/down count
@@ -45,17 +53,18 @@ async function getStats() {
   ).length;
   const unchecked = domains.filter((d) => d.checkLogs.length === 0).length;
 
-  return { totalDomains, activeDomains, totalChecks, upCount, downCount, unchecked };
+  return { totalDomains, activeDomains, totalChecks, totalGroups, upCount, downCount, unchecked };
 }
 
 export default async function DashboardPage() {
-  const [domains, stats] = await Promise.all([getDomains(), getStats()]);
+  const [domains, groups, stats] = await Promise.all([getDomains(), getGroups(), getStats()]);
 
   return (
     <div className="space-y-6">
       {/* Stats Overview */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Domains" value={stats.totalDomains} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard label="Domains" value={stats.totalDomains} />
+        <StatCard label="Gruppen" value={stats.totalGroups} />
         <StatCard
           label="Online"
           value={stats.upCount}
@@ -66,7 +75,7 @@ export default async function DashboardPage() {
           value={stats.downCount}
           className="text-red-600"
         />
-        <StatCard label="Total Checks" value={stats.totalChecks} />
+        <StatCard label="Checks gesamt" value={stats.totalChecks} />
       </div>
 
       {/* Manual Trigger */}
@@ -85,10 +94,10 @@ export default async function DashboardPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="status" className="mt-4">
-          <DomainStatusGrid domains={domains} />
+          <DomainStatusGrid domains={domains} groups={groups} />
         </TabsContent>
         <TabsContent value="manage" className="mt-4">
-          <DomainManagement domains={domains} />
+          <DomainManagement domains={domains} groups={groups} />
         </TabsContent>
       </Tabs>
     </div>

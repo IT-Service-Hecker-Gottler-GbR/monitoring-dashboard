@@ -23,6 +23,21 @@ async function main() {
 
   console.log("Seeded admin user:", admin.email);
 
+  // Seed example server group
+  const existingGroups = await prisma.serverGroup.count();
+  let hetznerGroup: { id: string } | null = null;
+  if (existingGroups === 0) {
+    hetznerGroup = await prisma.serverGroup.create({
+      data: {
+        name: "Hetzner Server #1",
+        description: "4 vCPU, 8 GB RAM, Falkenstein",
+        color: "#6366f1",
+        userId: admin.id,
+      },
+    });
+    console.log("Seeded example server group:", hetznerGroup.id);
+  }
+
   // Seed example domains
   const existingDomains = await prisma.domain.count();
   if (existingDomains === 0) {
@@ -34,6 +49,7 @@ async function main() {
           checkInterval: 5,
           isActive: true,
           userId: admin.id,
+          serverGroupId: hetznerGroup?.id ?? null,
         },
         {
           url: "https://google.com",

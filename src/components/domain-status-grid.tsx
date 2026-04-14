@@ -13,7 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Globe, ShieldCheck, ShieldX, Clock } from "lucide-react";
+import { Globe, ShieldCheck, ShieldX, Clock, Server } from "lucide-react";
 
 interface CheckLog {
   id: string;
@@ -26,37 +26,141 @@ interface CheckLog {
   checkedAt: Date;
 }
 
+interface ServerGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string;
+}
+
 interface Domain {
   id: string;
   url: string;
   customerName: string;
   checkInterval: number;
   isActive: boolean;
+  serverGroupId: string | null;
+  serverGroup: ServerGroup | null;
   checkLogs: CheckLog[];
 }
 
 interface DomainStatusGridProps {
   domains: Domain[];
+  groups: ServerGroup[];
 }
 
-export function DomainStatusGrid({ domains }: DomainStatusGridProps) {
+export function DomainStatusGrid({ domains, groups }: DomainStatusGridProps) {
   if (domains.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border bg-card p-12 text-center">
         <Globe className="mb-4 h-12 w-12 text-muted-foreground" />
-        <h3 className="text-lg font-semibold">No domains yet</h3>
+        <h3 className="text-lg font-semibold">Noch keine Domains</h3>
         <p className="text-sm text-muted-foreground">
-          Add your first domain in the &quot;Manage Domains&quot; tab
+          Füge deine erste Domain im &quot;Manage Domains&quot; Tab hinzu
         </p>
       </div>
     );
   }
 
+  // Group domains by serverGroup
+  const grouped = new Map<string | null, Domain[]>();
+  for (const domain of domains) {
+    const key = domain.serverGroupId;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(domain);
+  }
+
+  // Build ordered sections: groups first (alphabetically), then ungrouped
+  const groupMap = new Map(groups.map((g) => [g.id, g]));
+  const groupIds = [...grouped.keys()]
+    .filter((k) => k !== null)
+    .sort((a, b) => {
+      const ga = groupMap.get(a!);
+      const gb = groupMap.get(b!);
+      return (ga?.name ?? "").localeCompare(gb?.name ?? "");
+    });
+
+  const ungrouped = grouped.get(null) ?? [];
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {domains.map((domain) => (
-        <DomainCard key={domain.id} domain={domain} />
-      ))}
+    <div className="space-y-8">
+      {groupIds.map((groupId) => {
+        const group = groupMap.get(groupId!);
+        const groupDomains = grouped.get(groupId) ?? [];
+        return (
+          <GroupSection key={groupId} group={group!} domains={groupDomains} />
+        );
+      })}
+
+      {ungrouped.length > 0 && (
+        <div className="space-y-3">
+          {groupIds.length > 0 && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Globe className="h-4 w-4" />
+              <h3 className="text-sm font-semibold uppercase tracking-wide">
+                Ohne Gruppe
+              </h3>
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {ungrouped.map((domain) => (
+              <DomainCard key={domain.id} domain={domain} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroupSection({ group, domains }: { group: ServerGroup; domains: Domain[] }) {
+  const allUp = domains.every(
+    (d) => !d.isActive || (d.checkLogs.length > 0 && d.checkLogs[0].isUp)
+  );
+  const anyDown = domains.some(
+    (d) => d.isActive && d.checkLogs.length > 0 && !d.checkLogs[0].isUp
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <div
+          className="flex h-7 w-7 items-center justify-center rounded-md"
+          style={{ backgroundColor: group.color + "22" }}
+        >
+          <Server className="h-4 w-4" style={{ color: group.color }} />
+        </div>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide">
+            {group.name}
+          </h3>
+          {group.description && (
+            <span className="text-xs text-muted-foreground">
+              — {group.description}
+            </span>
+          )}
+        </div>
+        <Badge
+          variant="outline"
+          className="ml-auto text-xs"
+          style={{ borderColor: group.color, color: group.color }}
+        >
+          {domains.length} {domains.length === 1 ? "Domain" : "Domains"}
+        </Badge>
+        {anyDown ? (
+          <Badge className="bg-red-100 text-red-800 text-xs">Störung</Badge>
+        ) : allUp ? (
+          <Badge className="bg-green-100 text-green-800 text-xs">Alles OK</Badge>
+        ) : null}
+      </div>
+      <div
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 rounded-xl border p-4"
+        style={{ borderColor: group.color + "44" }}
+      >
+        {domains.map((domain) => (
+          <DomainCard key={domain.id} domain={domain} />
+        ))}
+      </div>
     </div>
   );
 }
