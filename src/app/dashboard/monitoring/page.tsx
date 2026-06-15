@@ -16,17 +16,24 @@ async function getDomains() {
         orderBy: { checkedAt: "desc" },
         take: 5,
       },
+      serverGroup: true,
     },
     orderBy: { createdAt: "desc" },
   });
 }
 
+async function getGroups() {
+  return prisma.serverGroup.findMany({ orderBy: { name: "asc" } });
+}
+
 async function getStats() {
-  const [totalDomains, activeDomains, totalChecks] = await Promise.all([
-    prisma.domain.count(),
-    prisma.domain.count({ where: { isActive: true } }),
-    prisma.checkLog.count(),
-  ]);
+  const [totalDomains, activeDomains, totalChecks, totalGroups] =
+    await Promise.all([
+      prisma.domain.count(),
+      prisma.domain.count({ where: { isActive: true } }),
+      prisma.checkLog.count(),
+      prisma.serverGroup.count(),
+    ]);
 
   const domains = await prisma.domain.findMany({
     where: { isActive: true },
@@ -44,9 +51,8 @@ async function getStats() {
   const downCount = domains.filter(
     (d) => d.checkLogs.length > 0 && !d.checkLogs[0].isUp
   ).length;
-  const unchecked = domains.filter((d) => d.checkLogs.length === 0).length;
 
-  return { totalDomains, activeDomains, totalChecks, upCount, downCount, unchecked };
+  return { totalDomains, activeDomains, totalChecks, totalGroups, upCount, downCount };
 }
 
 async function getOpenAlerts() {
@@ -59,8 +65,9 @@ async function getOpenAlerts() {
 }
 
 export default async function MonitoringPage() {
-  const [domains, stats, alerts] = await Promise.all([
+  const [domains, groups, stats, alerts] = await Promise.all([
     getDomains(),
+    getGroups(),
     getStats(),
     getOpenAlerts(),
   ]);
@@ -74,8 +81,9 @@ export default async function MonitoringPage() {
 
       <AlertsPanel alerts={alerts} />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Domains" value={stats.totalDomains} />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard label="Domains" value={stats.totalDomains} />
+        <StatCard label="Groups" value={stats.totalGroups} />
         <StatCard label="Online" value={stats.upCount} className="text-green-600" />
         <StatCard label="Offline" value={stats.downCount} className="text-red-600" />
         <StatCard label="Total Checks" value={stats.totalChecks} />
@@ -95,10 +103,10 @@ export default async function MonitoringPage() {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="status" className="mt-4">
-          <DomainStatusGrid domains={domains} />
+          <DomainStatusGrid domains={domains} groups={groups} />
         </TabsContent>
         <TabsContent value="manage" className="mt-4">
-          <DomainManagement domains={domains} />
+          <DomainManagement domains={domains} groups={groups} />
         </TabsContent>
       </Tabs>
     </div>
