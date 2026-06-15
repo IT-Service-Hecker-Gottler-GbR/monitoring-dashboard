@@ -64,9 +64,9 @@ function LoginForm() {
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Shield className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-2xl">Status Monitor</CardTitle>
+          <CardTitle className="text-2xl">IT-Service HG Suite</CardTitle>
           <CardDescription>
-            Sign in to manage your monitoring dashboard
+            Sign in to your management suite
           </CardDescription>
         </CardHeader>
         <CardContent>
