@@ -1,123 +1,196 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { DomainStatusGrid } from "@/components/domain-status-grid";
-import { DomainManagement } from "@/components/domain-management";
-import { MonitorTrigger } from "@/components/monitor-trigger";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Activity, Settings } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBadge } from "@/components/status-badge";
+import { formatCurrency, formatDate } from "@/lib/format";
+import {
+  FolderKanban,
+  ListChecks,
+  Users,
+  Receipt,
+  Activity,
+  ArrowRight,
+} from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
-async function getDomains() {
-  return prisma.domain.findMany({
-    include: {
-      checkLogs: {
-        orderBy: { checkedAt: "desc" },
-        take: 5,
-      },
-      serverGroup: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-}
-
-async function getGroups() {
-  return prisma.serverGroup.findMany({
-    orderBy: { name: "asc" },
-  });
-}
-
-async function getStats() {
-  const [totalDomains, activeDomains, totalChecks, totalGroups] = await Promise.all([
+async function getOverview() {
+  const [
+    activeProjects,
+    openTasks,
+    clients,
+    unpaidInvoices,
+    totalDomains,
+    activeDomains,
+    upcomingTasks,
+  ] = await Promise.all([
+    prisma.project.count({ where: { status: "active" } }),
+    prisma.task.count({ where: { status: { not: "done" } } }),
+    prisma.client.count(),
+    prisma.invoice.findMany({
+      where: { status: { not: "paid" } },
+      include: { items: true },
+    }),
     prisma.domain.count(),
-    prisma.domain.count({ where: { isActive: true } }),
-    prisma.checkLog.count(),
-    prisma.serverGroup.count(),
+    prisma.domain.findMany({
+      where: { isActive: true },
+      include: { checkLogs: { orderBy: { checkedAt: "desc" }, take: 1 } },
+    }),
+    prisma.task.findMany({
+      where: { status: { not: "done" } },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+      take: 6,
+      include: { project: true },
+    }),
   ]);
 
-  // Get latest check results for up/down count
-  const domains = await prisma.domain.findMany({
-    where: { isActive: true },
-    include: {
-      checkLogs: {
-        orderBy: { checkedAt: "desc" },
-        take: 1,
-      },
-    },
-  });
-
-  const upCount = domains.filter(
-    (d) => d.checkLogs.length > 0 && d.checkLogs[0].isUp
-  ).length;
-  const downCount = domains.filter(
+  const outstanding = unpaidInvoices.reduce(
+    (sum, inv) => sum + inv.items.reduce((s, i) => s + i.quantity * i.rate, 0),
+    0
+  );
+  const downCount = activeDomains.filter(
     (d) => d.checkLogs.length > 0 && !d.checkLogs[0].isUp
   ).length;
-  const unchecked = domains.filter((d) => d.checkLogs.length === 0).length;
 
-  return { totalDomains, activeDomains, totalChecks, totalGroups, upCount, downCount, unchecked };
+  return {
+    activeProjects,
+    openTasks,
+    clients,
+    outstanding,
+    unpaidCount: unpaidInvoices.length,
+    totalDomains,
+    downCount,
+    upcomingTasks,
+  };
 }
 
 export default async function DashboardPage() {
-  const [domains, groups, stats] = await Promise.all([getDomains(), getGroups(), getStats()]);
+  const o = await getOverview();
 
   return (
-    <div className="space-y-6">
-      {/* Stats Overview */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Domains" value={stats.totalDomains} />
-        <StatCard label="Gruppen" value={stats.totalGroups} />
-        <StatCard
-          label="Online"
-          value={stats.upCount}
-          className="text-green-600"
-        />
-        <StatCard
-          label="Offline"
-          value={stats.downCount}
-          className="text-red-600"
-        />
-        <StatCard label="Checks gesamt" value={stats.totalChecks} />
+    <div className="space-y-8">
+      <PageHeader title="Overview" subtitle="Your whole business at a glance" />
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">Business</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <LinkStat href="/dashboard/projects" label="Active projects" value={o.activeProjects} icon={FolderKanban} />
+          <LinkStat href="/dashboard/projects" label="Open tasks" value={o.openTasks} icon={ListChecks} />
+          <LinkStat href="/dashboard/clients" label="Clients" value={o.clients} icon={Users} />
+          <LinkStat
+            href="/dashboard/invoices"
+            label="Outstanding"
+            value={formatCurrency(o.outstanding)}
+            icon={Receipt}
+            hint={`${o.unpaidCount} unpaid invoice(s)`}
+          />
+        </div>
+      </section>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Upcoming tasks */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>Upcoming tasks</CardTitle>
+            <Link
+              href="/dashboard/projects"
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            >
+              View all <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {o.upcomingTasks.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No open tasks 🎉
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {o.upcomingTasks.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/dashboard/projects/${t.projectId}`}
+                        className="font-medium hover:text-primary"
+                      >
+                        {t.title}
+                      </Link>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {t.project.name}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <StatusBadge value={t.priority} />
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(t.dueDate)}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Monitoring summary */}
+        <Card>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-4 w-4" /> Monitoring
+            </CardTitle>
+            <Link
+              href="/dashboard/monitoring"
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+            >
+              Open <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Domains monitored</p>
+              <p className="text-3xl font-bold">{o.totalDomains}</p>
+            </div>
+            {o.downCount > 0 ? (
+              <div className="rounded-lg bg-destructive/10 p-3 text-sm font-medium text-destructive">
+                {o.downCount} domain(s) currently offline
+              </div>
+            ) : (
+              <div className="rounded-lg bg-green-500/10 p-3 text-sm font-medium text-green-600 dark:text-green-400">
+                All monitored domains are online
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
-
-      {/* Manual Trigger */}
-      <MonitorTrigger />
-
-      {/* Tabs */}
-      <Tabs defaultValue="status">
-        <TabsList>
-          <TabsTrigger value="status">
-            <Activity className="mr-2 h-4 w-4" />
-            Status Overview
-          </TabsTrigger>
-          <TabsTrigger value="manage">
-            <Settings className="mr-2 h-4 w-4" />
-            Manage Domains
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="status" className="mt-4">
-          <DomainStatusGrid domains={domains} groups={groups} />
-        </TabsContent>
-        <TabsContent value="manage" className="mt-4">
-          <DomainManagement domains={domains} groups={groups} />
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }
 
-function StatCard({
+function LinkStat({
+  href,
   label,
   value,
-  className,
+  icon: Icon,
+  hint,
 }: {
+  href: string;
   label: string;
-  value: number;
-  className?: string;
+  value: number | string;
+  icon: React.ComponentType<{ className?: string }>;
+  hint?: string;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-4 shadow-sm">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className={`text-3xl font-bold ${className || ""}`}>{value}</p>
-    </div>
+    <Link
+      href={href}
+      className="group rounded-xl border bg-card p-4 shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/40"
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{label}</p>
+        <Icon className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
+      </div>
+      <p className="mt-1 text-3xl font-bold">{value}</p>
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    </Link>
   );
 }
-

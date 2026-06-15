@@ -1,5 +1,6 @@
-// Monitoring Dashboard - Prisma Schema
-// Models: User, Domain, CheckLog
+// IT-Service HG — Management Suite — Prisma Schema
+// Monitoring: User, Domain, CheckLog
+// Project management: Client, Project, Task, TimeEntry, Invoice, InvoiceItem
 
 generator client {
   provider = "prisma-client"
@@ -19,6 +20,9 @@ model User {
   updatedAt      DateTime      @updatedAt
   domains        Domain[]
   serverGroups   ServerGroup[]
+  clients        Client[]
+  projects       Project[]
+  invoices       Invoice[]
 }
 
 model ServerGroup {
@@ -46,9 +50,23 @@ model Domain {
   serverGroupId String?
   serverGroup   ServerGroup? @relation(fields: [serverGroupId], references: [id], onDelete: SetNull)
   checkLogs     CheckLog[]
+  alerts        Alert[]
 
   @@index([isActive])
   @@index([serverGroupId])
+}
+
+model Alert {
+  id        String    @id @default(cuid())
+  domainId  String
+  domain    Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  type      String // down, ssl_expiring
+  message   String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([readAt])
+  @@index([domainId])
 }
 
 model CheckLog {
@@ -64,4 +82,119 @@ model CheckLog {
   checkedAt  DateTime @default(now())
 
   @@index([domainId, checkedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Project management
+// ---------------------------------------------------------------------------
+
+model Client {
+  id        String    @id @default(cuid())
+  name      String
+  company   String?
+  email     String?
+  phone     String?
+  notes     String?
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects  Project[]
+  invoices  Invoice[]
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Project {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  status      String      @default("active") // active, on_hold, completed, archived
+  budget      Float?
+  hourlyRate  Float? // used when generating invoices from tracked time
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId    String?
+  client      Client?     @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  tasks       Task[]
+  timeEntries TimeEntry[]
+  createdAt   DateTime    @default(now())
+
+  @@index([userId])
+}
+
+model Task {
+  id          String      @id @default(cuid())
+  title       String
+  description String?
+  status      String      @default("todo") // todo, in_progress, done
+  priority    String      @default("medium") // low, medium, high
+  dueDate     DateTime?
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  timeEntries TimeEntry[]
+  createdAt   DateTime    @default(now())
+
+  @@index([projectId])
+}
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  description String?
+  minutes     Int
+  date        DateTime @default(now())
+  billable    Boolean  @default(true)
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  taskId      String?
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  invoiceId   String? // set once this entry has been billed on an invoice
+  invoice     Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([invoiceId])
+}
+
+model Invoice {
+  id         String        @id @default(cuid())
+  number     String        @unique
+  status     String        @default("draft") // draft, sent, paid
+  issuedDate DateTime      @default(now())
+  dueDate    DateTime?
+  notes      String?
+  taxRate    Float         @default(0) // percent, snapshotted from business profile at creation
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId   String?
+  client     Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  items      InvoiceItem[]
+  timeEntries TimeEntry[]
+  createdAt  DateTime      @default(now())
+
+  @@index([userId])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  description String
+  quantity    Float   @default(1)
+  rate        Float   @default(0)
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+// Singleton row holding the business' own details (shown on invoices).
+model BusinessProfile {
+  id                String   @id @default("default")
+  companyName       String   @default("My Business")
+  addressLine1      String?
+  addressLine2      String?
+  email             String?
+  phone             String?
+  taxId             String? // VAT / tax number
+  taxRate           Float    @default(0) // default VAT % applied to new invoices
+  defaultHourlyRate Float    @default(0) // fallback rate for billing tracked time
+  currency          String   @default("USD")
+  invoiceNotes      String? // default footer note on invoices
+  updatedAt         DateTime @updatedAt
 }

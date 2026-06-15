@@ -23,6 +23,20 @@ async function main() {
 
   console.log("Seeded admin user:", admin.email);
 
+  // Business profile (used on invoices / for billing tracked time)
+  await prisma.businessProfile.upsert({
+    where: { id: "default" },
+    update: {},
+    create: {
+      id: "default",
+      companyName: "IT-Service Hecker & Gottler GbR",
+      currency: "EUR",
+      taxRate: 19,
+      defaultHourlyRate: 90,
+      invoiceNotes: "Payment due within 14 days. Thank you for your business!",
+    },
+  });
+
   // Seed example server group
   const existingGroups = await prisma.serverGroup.count();
   let hetznerGroup: { id: string } | null = null;
@@ -61,6 +75,67 @@ async function main() {
       ],
     });
     console.log("Seeded example domains");
+  }
+
+  // Seed example project-management data
+  const existingClients = await prisma.client.count();
+  if (existingClients === 0) {
+    const acme = await prisma.client.create({
+      data: {
+        name: "Sarah Chen",
+        company: "Acme Co.",
+        email: "sarah@acme.co",
+        phone: "555-0142",
+        userId: admin.id,
+      },
+    });
+
+    const project = await prisma.project.create({
+      data: {
+        name: "Website Redesign",
+        description: "Full marketing site rebuild with new brand.",
+        status: "active",
+        budget: 12000,
+        hourlyRate: 120,
+        userId: admin.id,
+        clientId: acme.id,
+        tasks: {
+          create: [
+            { title: "Discovery workshop", status: "done", priority: "high" },
+            { title: "Wireframes", status: "in_progress", priority: "high" },
+            { title: "Homepage design", status: "todo", priority: "medium" },
+            { title: "Build & launch", status: "todo", priority: "low" },
+          ],
+        },
+      },
+      include: { tasks: true },
+    });
+
+    await prisma.timeEntry.create({
+      data: {
+        description: "Kickoff call",
+        minutes: 90,
+        projectId: project.id,
+        taskId: project.tasks[0].id,
+      },
+    });
+
+    await prisma.invoice.create({
+      data: {
+        number: "INV-0001",
+        status: "sent",
+        userId: admin.id,
+        clientId: acme.id,
+        items: {
+          create: [
+            { description: "Discovery & strategy", quantity: 10, rate: 150 },
+            { description: "Wireframing", quantity: 8, rate: 150 },
+          ],
+        },
+      },
+    });
+
+    console.log("Seeded example project, client and invoice");
   }
 }
 

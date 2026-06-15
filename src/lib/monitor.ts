@@ -1,5 +1,78 @@
 import * as tls from "tls";
 import { prisma } from "@/lib/prisma";
+import { sendAlertEmail } from "@/lib/notify";
+
+const SSL_WARN_DAYS = 30;
+
+// Create alerts for down / SSL-expiry transitions and email them (best effort).
+// Reads each domain's previous status, so must run BEFORE new logs are inserted.
+async function processAlerts(
+  results: CheckResult[],
+  domainsById: Map<string, { id: string; url: string }>
+): Promise<number> {
+  const ids = results.map((r) => r.domainId);
+
+  const prevLogs = await Promise.all(
+    ids.map((domainId) =>
+      prisma.checkLog.findFirst({
+        where: { domainId },
+        orderBy: { checkedAt: "desc" },
+        select: { isUp: true },
+      })
+    )
+  );
+  const prevByDomain = new Map(ids.map((id, i) => [id, prevLogs[i]]));
+
+  const openSsl = await prisma.alert.findMany({
+    where: { type: "ssl_expiring", readAt: null, domainId: { in: ids } },
+    select: { domainId: true },
+  });
+  const openSslDomains = new Set(openSsl.map((a) => a.domainId));
+
+  const toCreate: { domainId: string; type: string; message: string }[] = [];
+
+  for (const r of results) {
+    const url = domainsById.get(r.domainId)?.url ?? r.domainId;
+
+    const prev = prevByDomain.get(r.domainId);
+    if (!r.isUp && prev?.isUp !== false) {
+      toCreate.push({
+        domainId: r.domainId,
+        type: "down",
+        message: `${url} is down${
+          r.statusCode ? ` (HTTP ${r.statusCode})` : r.error ? ` (${r.error})` : ""
+        }`,
+      });
+    }
+
+    if (r.isUp && r.sslExpiry && !openSslDomains.has(r.domainId)) {
+      const days = Math.ceil(
+        (r.sslExpiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      );
+      if (days >= 0 && days <= SSL_WARN_DAYS) {
+        toCreate.push({
+          domainId: r.domainId,
+          type: "ssl_expiring",
+          message: `SSL certificate for ${url} expires in ${days} day(s)`,
+        });
+      }
+    }
+  }
+
+  if (toCreate.length > 0) {
+    await prisma.alert.createMany({ data: toCreate });
+    await Promise.all(
+      toCreate.map((a) =>
+        sendAlertEmail(
+          a.type === "down" ? "Domain down" : "SSL expiring soon",
+          a.message
+        )
+      )
+    );
+  }
+
+  return toCreate.length;
+}
 
 export interface CheckResult {
   domainId: string;
@@ -133,6 +206,12 @@ export async function checkDomainsAndStore(
         r.status === "fulfilled"
     )
     .map((r) => r.value);
+
+  // Evaluate alerts against the previous state BEFORE inserting new logs.
+  if (checkLogs.length > 0) {
+    const domainsById = new Map(domains.map((d) => [d.id, d]));
+    await processAlerts(checkLogs, domainsById);
+  }
 
   // Batch insert all check logs
   if (checkLogs.length > 0) {

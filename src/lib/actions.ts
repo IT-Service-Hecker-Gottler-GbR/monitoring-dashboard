@@ -54,6 +54,7 @@ export async function createDomain(formData: FormData): Promise<ActionResult> {
     },
   });
 
+  revalidatePath("/dashboard/monitoring");
   revalidatePath("/dashboard");
   return { success: true };
 }
@@ -84,6 +85,7 @@ export async function updateDomain(id: string, formData: FormData): Promise<Acti
     },
   });
 
+  revalidatePath("/dashboard/monitoring");
   revalidatePath("/dashboard");
   return { success: true };
 }
@@ -95,6 +97,7 @@ export async function deleteDomain(id: string): Promise<ActionResult> {
     where: { id },
   });
 
+  revalidatePath("/dashboard/monitoring");
   revalidatePath("/dashboard");
   return { success: true };
 }
@@ -107,6 +110,7 @@ export async function toggleDomain(id: string, isActive: boolean): Promise<Actio
     data: { isActive },
   });
 
+  revalidatePath("/dashboard/monitoring");
   revalidatePath("/dashboard");
   return { success: true };
 }
@@ -126,6 +130,26 @@ export async function triggerMonitor(): Promise<ActionResult> {
     return { error: "Failed to trigger monitoring" };
   }
 
+  revalidatePath("/dashboard/monitoring");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function dismissAlert(id: string): Promise<ActionResult> {
+  await getAuthenticatedUserId();
+  await prisma.alert.update({ where: { id }, data: { readAt: new Date() } });
+  revalidatePath("/dashboard/monitoring");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function dismissAllAlerts(): Promise<ActionResult> {
+  await getAuthenticatedUserId();
+  await prisma.alert.updateMany({
+    where: { readAt: null },
+    data: { readAt: new Date() },
+  });
+  revalidatePath("/dashboard/monitoring");
   revalidatePath("/dashboard");
   return { success: true };
 }
